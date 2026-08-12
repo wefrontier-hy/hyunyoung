@@ -292,16 +292,21 @@
 
             <!-- 2. AUTOMATION SECTION -->
             <section id="section-automation" class="hidden fade-in h-full flex flex-col w-full max-w-7xl mx-auto">
-                <div class="mb-4 flex items-center justify-between">
+                <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                         <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
                             <i class="fas fa-robot text-blue-600"></i> AI 위험성평가 자동화 시스템
                         </h2>
                         <p class="text-sm text-slate-500 mt-1">외부 시스템이 연동되어 전체 화면으로 제공됩니다.</p>
                     </div>
-                    <button class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2" onclick="document.getElementById('automation-frame').src = document.getElementById('automation-frame').src">
-                        <i class="fas fa-sync-alt"></i> 새로고침
-                    </button>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="https://hyunyoung.vercel.app/lisk.html" target="_blank" rel="noopener noreferrer" class="bg-white border border-gray-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
+                            <i class="fas fa-external-link-alt"></i> 새 창으로 열기
+                        </a>
+                        <button class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2" onclick="document.getElementById('automation-frame').src = document.getElementById('automation-frame').src">
+                            <i class="fas fa-sync-alt"></i> 새로고침
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm flex-1 iframe-container overflow-hidden rounded-b-xl relative w-full">
