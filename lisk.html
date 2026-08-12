@@ -1,1 +1,651 @@
 
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 위험성평가 에이전트</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (Excel Export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- html2pdf.js (PDF Export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Noto Sans KR', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Custom Scrollbar for the table */
+        .table-container::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-radius: 4px;
+        }
+        .table-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+
+        /* Print styles for PDF generation */
+        .pdf-export-container {
+            background: white !important;
+            padding: 20px !important;
+        }
+        
+        .loading-overlay {
+            backdrop-filter: blur(4px);
+        }
+
+        /* Risk Badge Colors */
+        .risk-high { background-color: #fee2e2; color: #991b1b; font-weight: bold; }
+        .risk-medium { background-color: #fef3c7; color: #92400e; font-weight: bold; }
+        .risk-low { background-color: #dcfce7; color: #166534; font-weight: bold; }
+        
+        /* Table Header Border Styles for Export Match */
+        .kosha-table th, .kosha-table td {
+            border: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <div class="max-w-7xl w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-700 to-indigo-800 p-6 text-white flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-3 bg-white/20 rounded-xl">
+                    <i class="ph ph-robot text-3xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-tight">AI 위험성평가 에이전트</h1>
+                    <p class="text-blue-100 text-sm mt-1">현장 사진을 분석하여 KOSHA 표준 위험성평가표를 자동 생성합니다.</p>
+                </div>
+            </div>
+            
+            <div class="flex gap-2">
+                <button id="btnExcel" class="hidden items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm text-sm">
+                    <i class="ph ph-microsoft-excel-logo text-lg"></i>
+                    엑셀 저장
+                </button>
+                <button id="btnPdf" class="hidden items-center gap-2 bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm text-sm">
+                    <i class="ph ph-file-pdf text-lg"></i>
+                    PDF 저장
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="p-6 md:p-8 flex flex-col gap-8">
+            
+            <!-- Agent Interaction Area -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Left: Photo Upload -->
+                <div class="lg:col-span-1 flex flex-col gap-4">
+                    <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <i class="ph ph-camera text-blue-600"></i> 현장 사진 업로드
+                    </h2>
+                    
+                    <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-blue-50 hover:border-blue-400 transition-all bg-gray-50 group min-h-[300px] relative overflow-hidden">
+                        <input type="file" id="fileInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                        
+                        <div id="uploadPrompt" class="flex flex-col items-center">
+                            <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                                <i class="ph ph-upload-simple text-3xl"></i>
+                            </div>
+                            <p class="font-medium text-gray-700">클릭하거나 사진을 드래그하여 업로드</p>
+                            <p class="text-sm text-gray-500 mt-2">JPG, PNG 파일 지원</p>
+                        </div>
+
+                        <!-- Image Preview -->
+                        <img id="imagePreview" class="absolute inset-0 w-full h-full object-cover hidden z-0" alt="Preview" />
+                        <div id="imageOverlay" class="absolute inset-0 bg-black/40 hidden z-0 flex items-center justify-center">
+                            <button id="btnRetake" class="bg-white/90 text-gray-800 px-4 py-2 rounded-lg font-medium shadow-lg hover:bg-white flex items-center gap-2 relative z-20">
+                                <i class="ph ph-arrows-clockwise"></i> 다시 올리기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Agent Status & Result Data -->
+                <div class="lg:col-span-2 flex flex-col gap-4">
+                    <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <i class="ph ph-chart-bar text-indigo-600"></i> AI 분석 결과
+                    </h2>
+                    
+                    <div class="bg-gray-50 border border-gray-200 rounded-xl p-6 min-h-[300px] flex flex-col justify-center relative overflow-hidden" id="agentConsole">
+                        
+                        <!-- Initial State -->
+                        <div id="stateInitial" class="text-center text-gray-400 flex flex-col items-center">
+                            <i class="ph ph-images text-5xl mb-3 opacity-50"></i>
+                            <p>사진을 업로드하면 AI가 위험 유해요인을 분석하여<br/>평가표를 자동으로 작성합니다.</p>
+                        </div>
+
+                        <!-- Loading State -->
+                        <div id="stateLoading" class="hidden text-center flex flex-col items-center w-full">
+                            <div class="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                            <h3 class="text-lg font-semibold text-gray-800 mb-1">AI 시각 분석 중...</h3>
+                            <p class="text-sm text-gray-500" id="loadingText">안전 장비 착용 여부를 확인하고 있습니다.</p>
+                            
+                            <!-- Progress bar -->
+                            <div class="w-full max-w-md bg-gray-200 rounded-full h-2.5 mt-6 overflow-hidden">
+                                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Complete State / Form preview summary -->
+                        <div id="stateComplete" class="hidden h-full flex flex-col items-start justify-center text-left space-y-4 animate-fade-in w-full">
+                            <div class="flex items-center gap-3 w-full bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                <i class="ph ph-check-circle text-3xl text-green-600"></i>
+                                <div>
+                                    <h3 class="font-bold text-gray-800">위험성평가표 초안 작성 완료</h3>
+                                    <p class="text-sm text-gray-600">AI가 사진 내 위험 요인을 파악하여 대책을 수립했습니다. 하단의 표를 확인하고 다운로드하세요.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 w-full mt-2">
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                                    <p class="text-xs text-gray-500 mb-1">식별된 위험 요인</p>
+                                    <p class="text-xl font-bold text-gray-800" id="statHazards">0건</p>
+                                </div>
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                                    <p class="text-xs text-gray-500 mb-1">고위험(9점 이상)</p>
+                                    <p class="text-xl font-bold text-red-600" id="statHighRisk">0건</p>
+                                </div>
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                                    <p class="text-xs text-gray-500 mb-1">중위험(4~8점)</p>
+                                    <p class="text-xl font-bold text-yellow-600" id="statMedRisk">0건</p>
+                                </div>
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                                    <p class="text-xs text-gray-500 mb-1">저위험(1~3점)</p>
+                                    <p class="text-xl font-bold text-green-600" id="statLowRisk">0건</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- The Table Section -->
+            <div id="tableSection" class="hidden flex-col gap-4 mt-4 opacity-0 transition-opacity duration-500">
+                <div class="flex justify-between items-end border-b pb-2">
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800">위험성평가표 (KOSHA 표준 양식)</h2>
+                        <p class="text-sm text-gray-500 mt-1">안전보건공단 위험성평가 지침 기반 자동 생성 결과입니다.</p>
+                    </div>
+                    <p class="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-md">※ 위험성 = 가능성(빈도) × 중대성(강도)</p>
+                </div>
+                
+                <div class="table-container overflow-x-auto bg-white border border-gray-200 rounded-xl shadow-sm" id="exportTarget">
+                    <div class="p-6 pb-2 hidden print-header" id="printHeader">
+                        <h1 class="text-2xl font-bold text-center mb-6">위험성평가표</h1>
+                        <div class="flex justify-between text-sm mb-4 border-b pb-2">
+                            <span><strong>평가일자:</strong> <span id="currentDate"></span></span>
+                            <span><strong>평가자:</strong> AI 안전 에이전트</span>
+                        </div>
+                    </div>
+                    
+                    <table class="w-full text-sm text-left whitespace-nowrap min-w-[1200px] kosha-table" id="riskTable">
+                        <thead class="text-xs text-gray-800 bg-gray-100 text-center font-bold">
+                            <tr>
+                                <th scope="col" class="px-2 py-3 w-12 align-middle" rowspan="2">순번</th>
+                                <th scope="col" class="px-4 py-3 w-32 align-middle" rowspan="2">단위작업<br/>(공정명)</th>
+                                <th scope="col" class="px-4 py-3 w-64 align-middle" rowspan="2">유해·위험요인 파악<br/>(불안전한 상태 및 행동)</th>
+                                <th scope="col" class="px-4 py-3 w-40 align-middle" rowspan="2">현재의<br/>안전보건조치</th>
+                                <th scope="col" class="px-2 py-2 border-b-0" colspan="3">현재 위험성</th>
+                                <th scope="col" class="px-4 py-3 w-64 align-middle" rowspan="2">위험성 감소대책<br/>(개선방안)</th>
+                                <th scope="col" class="px-2 py-2 border-b-0" colspan="3">개선 후 위험성</th>
+                            </tr>
+                            <tr class="bg-gray-50 text-[11px] text-gray-600">
+                                <th class="px-1 py-2 w-12 border-t">가능성<br/>(빈도)</th>
+                                <th class="px-1 py-2 w-12 border-t">중대성<br/>(강도)</th>
+                                <th class="px-1 py-2 w-16 border-t bg-gray-100">위험성</th>
+                                <th class="px-1 py-2 w-12 border-t">가능성<br/>(빈도)</th>
+                                <th class="px-1 py-2 w-12 border-t">중대성<br/>(강도)</th>
+                                <th class="px-1 py-2 w-16 border-t bg-gray-100">위험성</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="text-gray-700">
+                            <!-- Rows will be dynamically injected here -->
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-gray-400 mt-1">* 엑셀 및 PDF 다운로드 시 KOSHA 표준 양식 형태로 저장됩니다.</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 flex flex-col gap-2 z-50"></div>
+
+    <script>
+        // Custom Toast Notification instead of alert()
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            const bgClass = type === 'error' ? 'bg-red-600' : (type === 'success' ? 'bg-green-600' : 'bg-gray-800');
+            toast.className = `${bgClass} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-300 transform translate-y-10 opacity-0`;
+            
+            const icon = type === 'error' ? 'ph-warning-circle' : (type === 'success' ? 'ph-check-circle' : 'ph-info');
+            
+            toast.innerHTML = `
+                <i class="ph ${icon} text-xl"></i>
+                <span class="text-sm font-medium">${message}</span>
+            `;
+            
+            document.getElementById('toastContainer').appendChild(toast);
+            
+            // Animate in
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            });
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Set current date for export
+        const today = new Date();
+        document.getElementById('currentDate').innerText = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+
+        // State variables
+        let tableData = [];
+
+        // DOM Elements
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const imagePreview = document.getElementById('imagePreview');
+        const uploadPrompt = document.getElementById('uploadPrompt');
+        const imageOverlay = document.getElementById('imageOverlay');
+        const btnRetake = document.getElementById('btnRetake');
+        
+        const stateInitial = document.getElementById('stateInitial');
+        const stateLoading = document.getElementById('stateLoading');
+        const stateComplete = document.getElementById('stateComplete');
+        const progressBar = document.getElementById('progressBar');
+        const loadingText = document.getElementById('loadingText');
+        
+        const tableSection = document.getElementById('tableSection');
+        const tableBody = document.getElementById('tableBody');
+        
+        const btnExcel = document.getElementById('btnExcel');
+        const btnPdf = document.getElementById('btnPdf');
+
+        // Mock Data Generator representing AI output
+        const mockHazardScenarios = [
+            [
+                {
+                    process: '고소 작업 (외벽)',
+                    hazard: '작업발판 단부 안전난간 미설치로 인해 작업자 추락 (사망 위험)',
+                    currentAction: '안전모 착용, 안전대 미체결',
+                    freq: 3, sev: 4, 
+                    measure: '1. 견고한 표준 안전난간 설치\n2. 추락방호망 설치\n3. 안전대 부착설비 확보 및 체결 확인',
+                    postFreq: 1, postSev: 4
+                },
+                {
+                    process: '자재 하역 (지게차)',
+                    hazard: '지게차 운행 반경 내 작업자 혼재로 인한 충돌 및 협착',
+                    currentAction: '경광등 및 후방경보기 작동',
+                    freq: 2, sev: 4, 
+                    measure: '1. 전담 유도자(신호수) 배치\n2. 작업반경 내 근로자 출입 통제 라인 설치',
+                    postFreq: 1, postSev: 3
+                }
+            ],
+            [
+                {
+                    process: '용접 작업 (배관)',
+                    hazard: '용접 불티 비산으로 인한 주변 가연물 착화 및 대형 화재 발생',
+                    currentAction: '소형 분말소화기 1대 비치',
+                    freq: 3, sev: 3, 
+                    measure: '1. 불티 비산 방지덮개(방염포) 완벽 설치\n2. 전담 화재감시자 지정 배치\n3. 작업 전 주변 가연물 제거',
+                    postFreq: 1, postSev: 3
+                },
+                {
+                    process: '가설 전기기기 사용',
+                    hazard: '누전차단기 미설치 및 전선 피복 파손부 접촉으로 인한 감전',
+                    currentAction: '일반 멀티탭 사용 (접지 미비)',
+                    freq: 2, sev: 4, 
+                    measure: '1. 분전반 누전차단기(30mA, 0.03초) 설치\n2. 손상된 가설 전선 즉시 교체\n3. 방수형 콘센트 사용',
+                    postFreq: 1, postSev: 4
+                },
+                {
+                    process: '현장 자재 정리',
+                    hazard: '통로에 방치된 자재 및 폐기물에 걸려 넘어짐 (전도)',
+                    currentAction: '작업 종료 후 일괄 정리',
+                    freq: 3, sev: 2, 
+                    measure: '1. 작업 중 수시로 3정 5S(정리/정돈) 실시\n2. 지정된 안전 통행로 확보 및 표지판 설치',
+                    postFreq: 1, postSev: 2
+                }
+            ]
+        ];
+
+        // Process File Selection
+        fileInput.addEventListener('change', function(e) {
+            if (e.target.files && e.target.files[0]) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        btnRetake.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.click();
+        });
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showToast('이미지 파일(JPG, PNG)만 업로드 가능합니다.', 'error');
+                return;
+            }
+
+            // Show Preview
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imagePreview.src = e.target.result;
+                imagePreview.classList.remove('hidden');
+                imageOverlay.classList.remove('hidden');
+                uploadPrompt.classList.add('hidden');
+                
+                // Hide input so dropzone is handled by retake button
+                fileInput.classList.add('hidden');
+            }
+            reader.readAsDataURL(file);
+
+            // Start Mock AI Process
+            simulateAIProcessing();
+        }
+
+        function simulateAIProcessing() {
+            // Reset UI
+            stateInitial.classList.add('hidden');
+            stateComplete.classList.add('hidden');
+            stateLoading.classList.remove('hidden');
+            tableSection.classList.add('hidden');
+            tableSection.classList.remove('flex');
+            tableSection.style.opacity = '0';
+            btnExcel.classList.add('hidden');
+            btnPdf.classList.add('hidden');
+            btnExcel.classList.remove('flex');
+            btnPdf.classList.remove('flex');
+
+            let progress = 0;
+            const texts = [
+                "이미지 화질 개선 및 전처리 중...",
+                "객체 인식 (작업자, 장비, 자재) 중...",
+                "불안전한 행동 및 상태 분석 중...",
+                "KOSHA 데이터베이스 매칭 및 위험성 추정 중...",
+                "감소대책 자동 생성 중...",
+                "보고서 양식 렌더링 중..."
+            ];
+
+            const interval = setInterval(() => {
+                progress += Math.random() * 15 + 5;
+                if (progress > 100) progress = 100;
+                
+                progressBar.style.width = `${progress}%`;
+                
+                const textIndex = Math.min(Math.floor((progress / 100) * texts.length), texts.length - 1);
+                loadingText.innerText = texts[textIndex];
+
+                if (progress === 100) {
+                    clearInterval(interval);
+                    setTimeout(() => finishAIProcessing(), 500);
+                }
+            }, 300);
+        }
+
+        function getRiskClass(riskScore) {
+            if (riskScore >= 9) return 'risk-high';
+            if (riskScore >= 4) return 'risk-medium';
+            return 'risk-low';
+        }
+
+        function finishAIProcessing() {
+            stateLoading.classList.add('hidden');
+            stateComplete.classList.remove('hidden');
+            
+            // Randomly select one of the mock scenarios to simulate AI varied outputs
+            const selectedScenario = mockHazardScenarios[Math.floor(Math.random() * mockHazardScenarios.length)];
+            tableData = selectedScenario;
+
+            renderTable();
+            updateStats();
+
+            // Show table and buttons
+            tableSection.classList.remove('hidden');
+            tableSection.classList.add('flex');
+            setTimeout(() => { tableSection.style.opacity = '1'; }, 50);
+            
+            btnExcel.classList.remove('hidden');
+            btnPdf.classList.remove('hidden');
+            btnExcel.classList.add('flex');
+            btnPdf.classList.add('flex');
+            
+            showToast('위험성평가표가 성공적으로 생성되었습니다.', 'success');
+        }
+
+        function renderTable() {
+            tableBody.innerHTML = '';
+            tableData.forEach((row, index) => {
+                const currentRisk = row.freq * row.sev;
+                const postRisk = row.postFreq * row.postSev;
+                
+                const tr = document.createElement('tr');
+                tr.className = `hover:bg-blue-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`;
+                
+                tr.innerHTML = `
+                    <td class="px-2 py-4 text-center font-medium text-gray-500">${index + 1}</td>
+                    <td class="px-4 py-4 font-medium text-gray-800 whitespace-normal break-words align-top">${row.process}</td>
+                    <td class="px-4 py-4 text-red-700 font-medium whitespace-normal break-words align-top leading-relaxed">${row.hazard}</td>
+                    <td class="px-4 py-4 text-gray-600 whitespace-normal break-words align-top">${row.currentAction}</td>
+                    <td class="px-2 py-4 text-center align-middle">${row.freq}</td>
+                    <td class="px-2 py-4 text-center align-middle">${row.sev}</td>
+                    <td class="px-2 py-4 text-center align-middle ${getRiskClass(currentRisk)}">${currentRisk}</td>
+                    <td class="px-4 py-4 text-blue-800 font-medium whitespace-pre-line break-words align-top leading-relaxed">${row.measure}</td>
+                    <td class="px-2 py-4 text-center align-middle">${row.postFreq}</td>
+                    <td class="px-2 py-4 text-center align-middle">${row.postSev}</td>
+                    <td class="px-2 py-4 text-center align-middle ${getRiskClass(postRisk)}">${postRisk}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        function updateStats() {
+            let high = 0, med = 0, low = 0;
+            tableData.forEach(row => {
+                const risk = row.freq * row.sev;
+                if (risk >= 9) high++;
+                else if (risk >= 4) med++;
+                else low++;
+            });
+            
+            document.getElementById('statHazards').innerText = `${tableData.length}건`;
+            document.getElementById('statHighRisk').innerText = `${high}건`;
+            document.getElementById('statMedRisk').innerText = `${med}건`;
+            document.getElementById('statLowRisk').innerText = `${low}건`;
+        }
+
+        // PDF Export Implementation using html2pdf
+        btnPdf.addEventListener('click', () => {
+            showToast('PDF 파일 생성을 시작합니다. 잠시만 기다려주세요.', 'info');
+            
+            const element = document.getElementById('exportTarget');
+            const printHeader = document.getElementById('printHeader');
+            
+            // Show header specifically for PDF
+            printHeader.classList.remove('hidden');
+            element.classList.add('pdf-export-container');
+            element.classList.remove('overflow-x-auto'); // Remove scrollbar for print
+
+            const opt = {
+                margin:       [15, 10, 15, 10], // top, left, bottom, right
+                filename:     `위험성평가표_${new Date().getTime()}.pdf`,
+                image:        { type: 'jpeg', quality: 1.0 },
+                html2canvas:  { scale: 2, useCORS: true, logging: false },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            };
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                // Restore layout after print
+                printHeader.classList.add('hidden');
+                element.classList.remove('pdf-export-container');
+                element.classList.add('overflow-x-auto');
+                showToast('PDF 다운로드가 완료되었습니다.', 'success');
+            }).catch(err => {
+                console.error(err);
+                showToast('PDF 생성 중 오류가 발생했습니다.', 'error');
+                // Restore layout on error
+                printHeader.classList.add('hidden');
+                element.classList.remove('pdf-export-container');
+                element.classList.add('overflow-x-auto');
+            });
+        });
+
+        // Excel Export Implementation using SheetJS
+        btnExcel.addEventListener('click', () => {
+            try {
+                const exportData = [];
+                
+                // 1. Report Title
+                exportData.push(['위험성평가표']);
+                exportData.push([`평가일자: ${document.getElementById('currentDate').innerText}`, '', '', '', '', '', '', '', '', '', `평가자: AI 안전 에이전트`]);
+                exportData.push([]); 
+                
+                // 2. Complex Headers (2 rows)
+                exportData.push([
+                    '순번', '단위작업(공정명)', '유해·위험요인 파악', '현재의 안전보건조치', 
+                    '현재 위험성', '', '', 
+                    '위험성 감소대책(개선방안)', 
+                    '개선 후 위험성', '', ''
+                ]);
+                exportData.push([
+                    '', '', '', '', 
+                    '가능성(빈도)', '중대성(강도)', '위험성', 
+                    '', 
+                    '가능성(빈도)', '중대성(강도)', '위험성'
+                ]);
+
+                // 3. Data Rows
+                tableData.forEach((row, index) => {
+                    const currentRisk = row.freq * row.sev;
+                    const postRisk = row.postFreq * row.postSev;
+                    
+                    exportData.push([
+                        index + 1,
+                        row.process,
+                        row.hazard,
+                        row.currentAction,
+                        row.freq,
+                        row.sev,
+                        currentRisk,
+                        row.measure,
+                        row.postFreq,
+                        row.postSev,
+                        postRisk
+                    ]);
+                });
+
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.aoa_to_sheet(exportData);
+                
+                // 4. Excel Styling & Configuration
+                const colWidths = [
+                    {wch: 6},   // No.
+                    {wch: 25},  // Process
+                    {wch: 45},  // Hazard
+                    {wch: 30},  // Current Action
+                    {wch: 12},  // Freq
+                    {wch: 12},  // Sev
+                    {wch: 12},  // Risk
+                    {wch: 55},  // Measure (Needs to be wide for multi-line)
+                    {wch: 12},  // Post Freq
+                    {wch: 12},  // Post Sev
+                    {wch: 12}   // Post Risk
+                ];
+                ws['!cols'] = colWidths;
+
+                // 5. Merge Cells for Title and Headers
+                ws['!merges'] = [
+                    { s: {r:0, c:0}, e: {r:0, c:10} }, // Title
+                    { s: {r:1, c:0}, e: {r:1, c:3} },  // Date
+                    { s: {r:1, c:8}, e: {r:1, c:10} }, // Author
+                    
+                    // Header Merges (Vertical)
+                    { s: {r:3, c:0}, e: {r:4, c:0} }, // No.
+                    { s: {r:3, c:1}, e: {r:4, c:1} }, // Process
+                    { s: {r:3, c:2}, e: {r:4, c:2} }, // Hazard
+                    { s: {r:3, c:3}, e: {r:4, c:3} }, // Current Action
+                    { s: {r:3, c:7}, e: {r:4, c:7} }, // Measure
+                    
+                    // Header Merges (Horizontal for Risk categories)
+                    { s: {r:3, c:4}, e: {r:3, c:6} }, // Current Risk Top
+                    { s: {r:3, c:8}, e: {r:3, c:10} } // Post Risk Top
+                ];
+
+                // Enable text wrapping for measure column in sheetjs (works in some viewers)
+                // Note: Community version of SheetJS has limited styling support without pro version,
+                // but the wide column and \n characters in the string help format it properly.
+
+                XLSX.utils.book_append_sheet(wb, ws, "위험성평가표");
+                XLSX.writeFile(wb, `KOSHA_위험성평가표_${new Date().getTime()}.xlsx`);
+                showToast('KOSHA 양식 엑셀 파일이 다운로드 되었습니다.', 'success');
+            } catch(e) {
+                console.error(e);
+                showToast('엑셀 생성 중 오류가 발생했습니다.', 'error');
+            }
+        });
+
+        // Add drag & drop styling
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropZone.classList.add('border-blue-500', 'bg-blue-50');
+        }
+
+        function unhighlight(e) {
+            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        }
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files && files[0]) {
+                handleFile(files[0]);
+            }
+        }
+    </script>
+</body>
+</html>
